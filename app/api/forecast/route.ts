@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import Anthropic from "@anthropic-ai/sdk";
 import { fetchQuote } from "@/lib/yahoo";
 import { fmtPrice, fmtPct } from "@/lib/format";
 import type { Forecast } from "@/lib/types";
@@ -8,7 +7,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MODEL = "claude-opus-4-8";
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const MODEL = "llama-3.3-70b-versatile";
 
 const SYSTEM = `You are the forecasting engine for "TechMarket Signals", a quantitative research tool focused on global technology markets.
 
@@ -59,11 +59,11 @@ function stripToJson(text: string): string {
 }
 
 export async function POST(req: Request) {
-  if (!process.env.ANTHROPIC_API_KEY) {
+  if (!process.env.GROQ_API_KEY) {
     return NextResponse.json(
       {
         error:
-          "The forecast engine is not configured. Add an ANTHROPIC_API_KEY environment variable and redeploy.",
+          "The forecast engine is not configured. Add a GROQ_API_KEY environment variable and redeploy.",
       },
       { status: 503 },
     );
@@ -92,7 +92,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ...hit.data, cached: true });
   }
 
-  // Build grounded data context if a symbol is supplied.
   let context: string | null = null;
   let dataAsOf: number | null = null;
   if (symbol) {
@@ -124,18 +123,37 @@ export async function POST(req: Request) {
   ].join("");
 
   try {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-
-    const message = await client.messages.create({
-      model: MODEL,
-      max_tokens: 2500,
-      thinking: { type: "adaptive" },
-      system: SYSTEM,
-      messages: [{ role: "user", content: userContent }],
+    const res = await fetch(GROQ_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 2500,
+        temperature: 0.4,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: SYSTEM },
+          { role: "user", content: userContent },
+        ],
+      }),
+      signal: AbortSignal.timeout(55000),
     });
 
-    const textBlock = message.content.find((b) => b.type === "text");
-    const text = textBlock?.type === "text" ? textBlock.text : "";
+    if (!res.ok) {
+      const message =
+        res.status === 401
+          ? "The GROQ_API_KEY is invalid or missing permissions."
+          : res.status === 429
+            ? "Rate limited by Groq. Please wait a moment and try again."
+            : "The forecast engine hit an error. Please try again.";
+      return NextResponse.json({ error: message }, { status: res.status });
+    }
+
+    const json = await res.json();
+    const text: string = json?.choices?.[0]?.message?.content ?? "";
 
     let forecast: Forecast;
     try {
@@ -147,17 +165,13 @@ export async function POST(req: Request) {
       );
     }
 
-    const data = { forecast, model: MODEL, dataAsOf, context };
+    const data = { forecast, model: "Llama 3.3 70B (Groq)", dataAsOf, context };
     cache.set(cacheKey, { ts: Date.now(), data });
     return NextResponse.json({ ...data, cached: false });
-  } catch (err) {
-    const status = (err as { status?: number }).status;
-    const message =
-      status === 401
-        ? "The ANTHROPIC_API_KEY is invalid or missing permissions."
-        : status === 429
-          ? "Rate limited by the Claude API. Please wait a moment and try again."
-          : "The forecast engine hit an error. Please try again.";
-    return NextResponse.json({ error: message }, { status: status ?? 500 });
+  } catch {
+    return NextResponse.json(
+      { error: "The forecast engine hit an error. Please try again." },
+      { status: 500 },
+    );
   }
 }
