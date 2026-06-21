@@ -40,6 +40,21 @@ export const SECTORS: { name: string; symbols: string[] }[] = [
   { name: "Mobility & EV", symbols: ["TSLA"] },
 ];
 
+// Claude Portfolio — public equities that invest in, partner with, or directly
+// benefit from Anthropic and the Claude AI platform.
+export const CLAUDE_PORTFOLIO: Listing[] = [
+  { symbol: "AMZN",  name: "Amazon · Lead Investor & AWS Bedrock Host" },
+  { symbol: "GOOGL", name: "Alphabet · Major Investor & GCP Partner" },
+  { symbol: "NVDA",  name: "NVIDIA · GPU Infrastructure for Claude" },
+  { symbol: "CRM",   name: "Salesforce · Investor & Claude Integrations" },
+  { symbol: "ADBE",  name: "Adobe · Claude-Powered Creative AI" },
+  { symbol: "NOW",   name: "ServiceNow · Claude Enterprise Workflows" },
+  { symbol: "SNOW",  name: "Snowflake · Claude Data Intelligence" },
+  { symbol: "DDOG",  name: "Datadog · Claude Observability Stack" },
+  { symbol: "ZM",    name: "Zoom · Claude AI Companion" },
+  { symbol: "MSFT",  name: "Microsoft · Azure AI Infrastructure" },
+];
+
 export const ALL_LISTINGS: Listing[] = [...PULSE, ...WATCHLIST];
 export const ALL_SYMBOLS: string[] = ALL_LISTINGS.map((l) => l.symbol);
 
