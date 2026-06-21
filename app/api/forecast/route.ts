@@ -7,10 +7,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// Mistral AI chat-completions endpoint.
-const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
-// Most capable general model. Use "mistral-small-latest" to lower cost.
-const MODEL = "mistral-large-latest";
+const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
+const MODEL = "llama-3.3-70b-versatile";
 
 const SYSTEM = `You are the forecasting engine for "TechMarket Signals", a quantitative research tool focused on global technology markets.
 
@@ -51,7 +49,6 @@ const TTL = 5 * 60 * 1000;
 
 function stripToJson(text: string): string {
   let t = text.trim();
-  // Remove ``` fences if present.
   t = t.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
   const start = t.indexOf("{");
   const end = t.lastIndexOf("}");
@@ -62,11 +59,11 @@ function stripToJson(text: string): string {
 }
 
 export async function POST(req: Request) {
-  if (!process.env.MISTRAL_API_KEY) {
+  if (!process.env.GROQ_API_KEY) {
     return NextResponse.json(
       {
         error:
-          "The forecast engine is not configured. Add a MISTRAL_API_KEY environment variable (see README) and redeploy.",
+          "The forecast engine is not configured. Add a GROQ_API_KEY environment variable and redeploy.",
       },
       { status: 503 },
     );
@@ -95,7 +92,6 @@ export async function POST(req: Request) {
     return NextResponse.json({ ...hit.data, cached: true });
   }
 
-  // Build grounded data context if a symbol is supplied.
   let context: string | null = null;
   let dataAsOf: number | null = null;
   if (symbol) {
@@ -127,17 +123,16 @@ export async function POST(req: Request) {
   ].join("");
 
   try {
-    const res = await fetch(MISTRAL_URL, {
+    const res = await fetch(GROQ_URL, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.MISTRAL_API_KEY}`,
+        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
       },
       body: JSON.stringify({
         model: MODEL,
         max_tokens: 2500,
         temperature: 0.4,
-        // JSON mode forces a syntactically valid JSON object response.
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: SYSTEM },
@@ -150,10 +145,10 @@ export async function POST(req: Request) {
     if (!res.ok) {
       const message =
         res.status === 401
-          ? "The MISTRAL_API_KEY is invalid or missing permissions."
+          ? "The GROQ_API_KEY is invalid or missing permissions."
           : res.status === 429
-            ? "Rate limited by the Mistral API. Please wait a moment and try again."
-            : "The forecast engine hit an error from the model API. Please try again.";
+            ? "Rate limited by Groq. Please wait a moment and try again."
+            : "The forecast engine hit an error. Please try again.";
       return NextResponse.json({ error: message }, { status: res.status });
     }
 
@@ -170,7 +165,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const data = { forecast, model: MODEL, dataAsOf, context };
+    const data = { forecast, model: "Llama 3.3 70B (Groq)", dataAsOf, context };
     cache.set(cacheKey, { ts: Date.now(), data });
     return NextResponse.json({ ...data, cached: false });
   } catch {

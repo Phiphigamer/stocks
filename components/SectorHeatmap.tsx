@@ -23,13 +23,20 @@ function cellStyle(v: number | null): CSSProperties {
   };
 }
 
-export function SectorHeatmap({ quotes }: { quotes: Quote[] }) {
+export function SectorHeatmap({
+  quotes,
+  sectors: sectorsProp,
+}: {
+  quotes: Quote[];
+  sectors?: { name: string; symbols: string[] }[];
+}) {
+  const activeSectors = sectorsProp ?? SECTORS;
   const map: Record<string, Quote> = Object.fromEntries(
     quotes.map((q) => [q.symbol, q]),
   );
   return (
     <div className="heatmap">
-      {SECTORS.map((sector) => {
+      {activeSectors.map((sector) => {
         const v = avgChange(sector.symbols, map);
         return (
           <div className="heat-cell" key={sector.name} style={cellStyle(v)}>
