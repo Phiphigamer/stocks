@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/", label: "Dashboard" },
   { href: "/forecast", label: "AI Forecast" },
   { href: "/portfolio/claude", label: "Claude Portfolio" },
+  { href: "/portfolio/tech", label: "Tech Sector" },
 ];
 
 export function Nav() {
