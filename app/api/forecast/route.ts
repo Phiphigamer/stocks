@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
 import { fetchQuote } from "@/lib/yahoo";
 import { fmtPrice, fmtPct } from "@/lib/format";
 import type { Forecast } from "@/lib/types";
@@ -7,10 +8,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-// Mistral AI chat-completions endpoint.
-const MISTRAL_URL = "https://api.mistral.ai/v1/chat/completions";
-// Most capable general model. Use "mistral-small-latest" to lower cost.
-const MODEL = "mistral-large-latest";
+const MODEL = "claude-opus-4-8";
 
 const SYSTEM = `You are the forecasting engine for "TechMarket Signals", a quantitative research tool focused on global technology markets.
 
@@ -51,7 +49,6 @@ const TTL = 5 * 60 * 1000;
 
 function stripToJson(text: string): string {
   let t = text.trim();
-  // Remove ``` fences if present.
   t = t.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
   const start = t.indexOf("{");
   const end = t.lastIndexOf("}");
@@ -62,11 +59,11 @@ function stripToJson(text: string): string {
 }
 
 export async function POST(req: Request) {
-  if (!process.env.MISTRAL_API_KEY) {
+  if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json(
       {
         error:
-          "The forecast engine is not configured. Add a MISTRAL_API_KEY environment variable (see README) and redeploy.",
+          "The forecast engine is not configured. Add an ANTHROPIC_API_KEY environment variable and redeploy.",
       },
       { status: 503 },
     );
@@ -127,38 +124,18 @@ export async function POST(req: Request) {
   ].join("");
 
   try {
-    const res = await fetch(MISTRAL_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.MISTRAL_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: 2500,
-        temperature: 0.4,
-        // JSON mode forces a syntactically valid JSON object response.
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: SYSTEM },
-          { role: "user", content: userContent },
-        ],
-      }),
-      signal: AbortSignal.timeout(55000),
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+
+    const message = await client.messages.create({
+      model: MODEL,
+      max_tokens: 2500,
+      thinking: { type: "adaptive" },
+      system: SYSTEM,
+      messages: [{ role: "user", content: userContent }],
     });
 
-    if (!res.ok) {
-      const message =
-        res.status === 401
-          ? "The MISTRAL_API_KEY is invalid or missing permissions."
-          : res.status === 429
-            ? "Rate limited by the Mistral API. Please wait a moment and try again."
-            : "The forecast engine hit an error from the model API. Please try again.";
-      return NextResponse.json({ error: message }, { status: res.status });
-    }
-
-    const json = await res.json();
-    const text: string = json?.choices?.[0]?.message?.content ?? "";
+    const textBlock = message.content.find((b) => b.type === "text");
+    const text = textBlock?.type === "text" ? textBlock.text : "";
 
     let forecast: Forecast;
     try {
@@ -173,10 +150,14 @@ export async function POST(req: Request) {
     const data = { forecast, model: MODEL, dataAsOf, context };
     cache.set(cacheKey, { ts: Date.now(), data });
     return NextResponse.json({ ...data, cached: false });
-  } catch {
-    return NextResponse.json(
-      { error: "The forecast engine hit an error. Please try again." },
-      { status: 500 },
-    );
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    const message =
+      status === 401
+        ? "The ANTHROPIC_API_KEY is invalid or missing permissions."
+        : status === 429
+          ? "Rate limited by the Claude API. Please wait a moment and try again."
+          : "The forecast engine hit an error. Please try again.";
+    return NextResponse.json({ error: message }, { status: status ?? 500 });
   }
 }
